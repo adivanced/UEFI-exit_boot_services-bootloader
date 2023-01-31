@@ -10,3 +10,4 @@ If the program drew a row of pixels on your screen, then it worked properly and 
 Note that this program will probably not work qemu because of the call to exit_boot_services. 
 
 Note that this implementation is basic and lacks some error handling and memory_map buffer dynamic allocation.
+Also note, that it may not run on some EFI implementations because of its use of absolute addressing. This can be solved by rewriting the code so that it uses relative addressing and loads the image to some absolute address, or by finding an absolute address, that will satisfy your concrete EFI implementation.
