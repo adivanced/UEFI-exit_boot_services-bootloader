@@ -1,12 +1,13 @@
 [BITS 64]
-[DEFAULT ABS]
-[ORG 0x00100000]
+[DEFAULT REL]
 
-%include "jd9999_hdr_macro.inc"  ; Windows PE32+ header implementation by JD9999, that I turned into a macro.
+%include "jd9999_hdr_macro.inc"
+jd9999_hdr_macro textsize, datasize, 0, textsize+datasize+1024
 
-jd9999_hdr_macro textsize, datasize, 0x00100000, textsize+datasize+1024
+
 
 section .text follows=.header
+
    sub rsp, 6*8+8 ; Copied from Charles AP's implementation, fix stack alignment issue (Thanks Charles AP!)
 
    mov qword [EFI_HANDLE], rcx           ; Handover variables 
@@ -29,20 +30,21 @@ section .text follows=.header
 
 
 
-
-
-   mov rcx, EFI_GOP_GUID ; arg1 - pointer to the GOP GUID
-   mov rdx, 0            ; arg2 - optional registration key
-   mov r8, EFI_GOP       ; arg3 - a pointer that will point to a _EFI_GRAPHICS_OUTPUT_PROTOCOL struct on return
+   lea rcx, [EFI_GOP_GUID] ; arg1 - pointer to the GOP GUID
+   mov rdx, 0              ; arg2 - optional registration key
+   lea r8, [EFI_GOP]       ; arg3 - a pointer that will point to a _EFI_GRAPHICS_OUTPUT_PROTOCOL struct on return
+   mov rax, 3              ; argc
    sub rsp, 32
-   call qword [EFI_LOCATE_PROTOCOL] 
+   mov rbx, qword [EFI_LOCATE_PROTOCOL]
+   call rbx
    add rsp, 32
 
-   mov rax, qword [EFI_GOP]
+   mov rbx, qword [EFI_GOP]
    mov rcx, qword [EFI_GOP] ; arg1 - pointer to _EFI_GRAPHICS_OUTPUT_PROTOCOL
    mov rdx, 0               ; arg2 - video mode id
+   mov rax, 2 				; argc
    sub rsp, 32
-   call qword [rax+8]       ; Set video mode by calling _EFI_GRAPHICS_OUTPUT_PROTOCOL->EFI_GRAPHICS_OUTPUT_PROTOCOL_SET_MODE 
+   call qword [rbx+8]       ; Set video mode by calling _EFI_GRAPHICS_OUTPUT_PROTOCOL->EFI_GRAPHICS_OUTPUT_PROTOCOL_SET_MODE 
    add rsp, 32
 
    mov rax, qword [EFI_GOP]
@@ -51,44 +53,52 @@ section .text follows=.header
    mov qword [framebuff_addr], rax  ; framebuff_addr = _EFI_GRAPHICS_OUTPUT_PROTOCOL->Mode->FrameBufferBase
 
 
-
    call_mmap:
 
-   mov rcx, mm_sz  ; arg1 - pointer to the size of the buffer, we supplied to the get_mmap 
-   mov rdx, mmap   ; arg2 - pointer to the mmap buffer
-   mov r8, mmkey   ; arg3 - in mmkey, get_mmap will return the current mmap's key on success
-   mov r9, mmdsz   ; arg4 - in mmdsz, get_mmap will return the size of EFI_MEMORY_DESCRIPTOR on success
-   mov r10, mmdsv  ; arg5 - in mmdsv, get_mmap will return the version number, associated with EFI_MEMORY_DESCRIPTOR on success
+   lea rcx, [mm_sz]  ; arg1 - pointer to the size of the buffer, we supplied to the get_mmap 
+   lea rdx, [mmap]  ; arg2 - pointer to the mmap buffer
+   lea r8, [mmkey]  ; arg3 - in mmkey, get_mmap will return the current mmap's key on success
+   lea r9, [mmdsz]  ; arg4 - in mmdsz, get_mmap will return the size of EFI_MEMORY_DESCRIPTOR on success
+   lea r10, [mmdsv]  ; arg5 - in mmdsv, get_mmap will return the version number, associated with EFI_MEMORY_DESCRIPTOR on success
+   mov rax, 5
    sub rsp, 32
-   call qword [EFI_GET_MMAP] 
+   mov rbx, qword [EFI_GET_MMAP]
+   call rbx
    add rsp, 32
 
    and rax, rax  ; since the mm_sz is 0, get_mmap will fail the first time we call it. 
    jnz call_mmap ; But upon failing, it will put the desired buffer size into mm_sz, so, the second call should be successful and return 0.
 
+
    mov rcx, qword [EFI_HANDLE] ; arg1 - EFI_HANDLE handover variable 
    mov rdx, qword [mmkey]      ; arg2 - mmkey, we got from get_mmap
+   mov rax, 2
    sub rsp, 32
-   call qword [EFI_EXIT_BOOT_SERVICES]
+   mov rbx, qword [EFI_EXIT_BOOT_SERVICES]
+   call rbx
    add rsp, 32
 
-   and rax, rax ; if exit_boot_services failed, we jump to the program stall sequence right away
-   jnz end      ; if it did not, we first put some pixels on the screen to indicate our success and only then stall.
+   and rax, rax 
+   jnz end      
+
+
 
    cld
    mov rdi, qword [framebuff_addr]
    mov eax, 0x22822833              ; some random pixel color
    mov rcx, 0x2223                  ; some random amount of pixels
-   rep stosd
+   rep stosd   
+
 
    end:
-
-   cli
-   hlt  ; stall indefinitely 
+	
+	cli
+   hlt
 
 
    times 1024 - ($-$$) db 0 ;alignment
-   textsize equ $-$$
+textsize equ $-$$
+
 
 section .data follows=.text
    EFI_HANDLE dq 0
@@ -121,9 +131,9 @@ section .data follows=.text
    framebuff_addr dq 0
 
 
-times 1024 - ($-$$) db 0 ;alignment
+	times 1024 - ($-$$) db 0 ;alignment
 
 mmap:               ; mmap buffer. The better way of implementing the get_mmap call is to dynamically allocate our buffer using UEFI services after the first call to get_mmap.
     times 4096 db 0 ; But I simply assumed, that 4096 bytes will be enough to fit our mmap.
 
-    datasize equ $-$$   
+datasize equ $-$$
